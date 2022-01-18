@@ -13,15 +13,18 @@ namespace Microsoft.Security.Utilities
         internal static uint MinimumGeneratedKeySize => 24;
 
         /// <summary>
-        /// Generate an identifiable secret.
+        /// Generate an identifiable secret rendered in the standard base64-encoding alphabet.
         /// </summary>
         /// <param name="checksumSeed"></param>
         /// <param name="keyLengthInBytes">The size of the secret.</param>
         /// <param name="base64EncodedSignature">The signature that will be encoded in the identifiable secret.</param>
+        /// <param name="encodeForUrl">'true' if the returned token should be encoded in a URL-compatible form 
+        /// (replacing the '+' and '/' characters and dropping any padding).</param>
         /// <returns></returns>
         public static string GenerateBase64Key(ulong checksumSeed,
-                                                     uint keyLengthInBytes,
-                                                     string base64EncodedSignature)
+                                               uint keyLengthInBytes,
+                                               string base64EncodedSignature,
+                                               bool encodeForUrl = false)
         {
             if (keyLengthInBytes > MaximumGeneratedKeySize)
             {
@@ -56,17 +59,21 @@ namespace Microsoft.Security.Utilities
             var randomBytes = new byte[keyLengthInBytes];
             cryptoProvider.GetBytes(randomBytes);
 
-            return GenerateKeyWithAppendedSignatureAndChecksum(randomBytes, base64EncodedSignature, checksumSeed);
+            return GenerateKeyWithAppendedSignatureAndChecksum(randomBytes,
+                                                               base64EncodedSignature,
+                                                               checksumSeed,
+                                                               encodeForUrl);
         }
 
         /// <summary>
         /// Validate if the identifiable secret contains a valid format.
         /// </summary>
-        /// <param name="key"></param>
-        /// <param name="checksumSeed"></param>
-        /// <param name="expectedSignature"></param>
+        /// <param name="key">A base64-encoded identifiable secret, encoded using the standard base64-alphabet or a URL friendly alternate.</param>
+        /// <param name="checksumSeed">The seed used to initialize the Marvin32 checksum algorithm.</param>
+        /// <param name="expectedSignature">A fixed signature that should immediately precese the checksum in the encoded secret.</param>
+        /// <param name="encodeForUrl">'true' if the secret was encoded for URLs (replacing '+' and '/' characters and eliminating any padding).</param>
         /// <returns></returns>
-        public static bool ValidateKey(string key, ulong checksumSeed, string expectedSignature)
+        public static bool ValidateBase64Key(string key, ulong checksumSeed, string expectedSignature, bool encodeForUrl)
         {
             int keyLength = key.Length;
 
@@ -76,11 +83,11 @@ namespace Microsoft.Security.Utilities
             }
 
 #if NETSTANDARD2_0_OR_GREATER || NET5_0_OR_GREATER
-            var bytes = new ReadOnlySpan<byte>(Convert.FromBase64String(key));
+            var bytes = new ReadOnlySpan<byte>(ConvertFromBase64String(key));
             int expectedChecksum = BitConverter.ToInt32(bytes.Slice(bytes.Length - 4, 4).ToArray(), 0);
             int actualChecksum = Marvin.ComputeHash32(bytes.Slice(0, bytes.Length - 4), checksumSeed);
 #else
-            byte[] bytes = Convert.FromBase64String(key);
+            byte[] bytes = ConvertFromBase64String(key);
             int checksumOffset = bytes.Length - 4;
             var checksumOffsetData = new byte[4];
             var checksumData = new byte[bytes.Length - 4];
@@ -97,9 +104,10 @@ namespace Microsoft.Security.Utilities
                 return false;
             }
 
-            // Retrieve padding required to maintain the 6-bit alignment
-            // that allows the base64-encoded signature to render.
-            int padding = (bytes.Length - 7) * 8 % 6;
+            // Compute the padding or 'spillover' into the final base64-encoded secret
+            // for the random portion of the token, which is our data array minus
+            // 7 bytes (3 bytes for the fixed signature, 4 bytes for the checksum).
+            int padding = ComputeSpilloverBitsIntoFinalEncodedCharacter(bytes.Length - 7);
 
             string equalsSigns = string.Empty;
             int equalsSignIndex = key.IndexOf('=');
@@ -108,7 +116,7 @@ namespace Microsoft.Security.Utilities
 
             if (equalsSignIndex > -1)
             {
-                equalsSigns = key.Substring(equalsSignIndex);
+                equalsSigns = encodeForUrl ? string.Empty : key.Substring(equalsSignIndex);
                 prefixLength = equalsSignIndex - 10;
             }
 
@@ -116,36 +124,39 @@ namespace Microsoft.Security.Utilities
             char lastChar = trimmedKey[trimmedKey.Length - 1];
             char firstChar = trimmedKey[trimmedKey.Length - 6];
 
-            // We need to escape the plus sign before injecting into regex.
+            string specialChars = encodeForUrl ? "\\-_" : "\\/+";
+            string secretAlphabet = $"[a-zA-Z0-9{specialChars}]";
+
+            // We need to escape characters in the signature that are special in regex.
             expectedSignature = expectedSignature.Replace("+", "\\+");
+
+            string checksumPrefix = string.Empty, checksumSuffix = string.Empty;
 
             switch (padding)
             {
                 case 2:
                 {
-                    // When we are required to left-shift the fixed signatures by two
+                    // When we are required to right-shift the fixed signatures by two
                     // bits, the first encoded character of the checksum will have its
                     // first two bits set to zero, limiting encoded chars to A-P.
                     if (firstChar < 'A' || firstChar > 'P')
                     {
                         return false;
                     }
-
-                    pattern = $"[0-9a-zA-Z\\/\\+]{{{prefixLength}}}{expectedSignature}[A-P][0-9a-zA-Z\\/\\+]{{5}}{equalsSigns}";
+                    checksumPrefix = "[A-P]";
                     break;
                 }
 
                 case 4:
                 {
-                    // When we are required to left-shift the fixed signatures by four
+                    // When we are required to right-shift the fixed signatures by four
                     // bits, the first encoded character of the checksum will have its
                     // first four bits set to zero, limiting encoded chars to A-D.
                     if (firstChar < 'A' || firstChar > 'D')
                     {
                         return false;
                     }
-
-                    pattern = $"[0-9a-zA-Z\\/\\+]{{{prefixLength}}}{expectedSignature}[A-D][0-9a-zA-Z\\/\\+]{{5}}{equalsSigns}";
+                    checksumPrefix = "[A-D]";
                     break;
                 }
 
@@ -155,38 +166,59 @@ namespace Microsoft.Security.Utilities
                     // signature and checksum and their encoded representation. As
                     // a result, two bits of the final checksum byte will spill into
                     // the final encoded character, followed by four zeros of padding.
+                    // This limits the possible values for the final checksum character
+                    // to one of A, Q, g & w.
                     if (lastChar != 'A' && lastChar != 'Q' &&
                         lastChar != 'g' && lastChar != 'w')
                     {
                         return false;
                     }
 
-                    pattern = $"[0-9a-zA-Z\\/\\+]{{{prefixLength}}}{expectedSignature}[0-9a-zA-Z\\/\\+]{{5}}[AQgw]{equalsSigns}";
+                    checksumSuffix = "[AQgw]";
                     break;
                 }
             }
 
+            // Example patterns, URL-friendly encoding:
+            //   [a-zA-Z0-9\-_]{22}XXXX[A-D][a-zA-Z0-9\-_]{5}
+            //   [a-zA-Z0-9\-_]{25}XXXX[A-P][a-zA-Z0-9\\-_]{5}
+            //   [a-zA-Z0-9\-_]{24}XXXX[a-zA-Z0-9\-_]{5}[AQgw]
+
+            pattern = $"{secretAlphabet}{{{prefixLength}}}{expectedSignature}{checksumPrefix}{secretAlphabet}{{5}}{checksumSuffix}{equalsSigns}";
             var regex = new Regex(pattern);
             return regex.IsMatch(key);
         }
 
+        private static int ComputeSpilloverBitsIntoFinalEncodedCharacter(int countOfBytes)
+        {
+            // Retrieve padding required to maintain the 6-bit alignment
+            // that allows the base64-encoded signature to render.
+            // 
+            // First we compute the # of bits of total information to encode.
+            // Next, using the modulo operator, we determine the number of 
+            // 'spillover' bits that will flow into, but not not completely 
+            // fill, the final 6-bit encoded value. 
+            return countOfBytes * 8 % 6;
+        }
+
         private static string GenerateKeyWithAppendedSignatureAndChecksum(byte[] keyValue,
                                                                           string base64EncodedSignature,
-                                                                          ulong checksumSeed)
+                                                                          ulong checksumSeed,
+                                                                          bool encodeForUrl)
         {
-            uint keyLengthInBytes = (uint)keyValue.Length;
-            uint checksumOffset = keyLengthInBytes - 4;
-            uint signatureOffset = checksumOffset - 4;
+            int keyLengthInBytes = keyValue.Length;
+            int checksumOffset = keyLengthInBytes - 4;
+            int signatureOffset = checksumOffset - 4;
 
             // Compute a signature that will render consistently when
             // base64-encoded. This potentially requires consuming bits
             // from the byte that precedes the signature (to keep data
             // aligned on a 6-bit boundary, as required by base64).
             byte signaturePrefixByte = keyValue[signatureOffset];
-            byte[] signatureBytes = GetBase64EncodedSignatureBytes(
-                                        keyLengthInBytes,
-                                        base64EncodedSignature,
-                                        signaturePrefixByte);
+            
+            byte[] signatureBytes = GetBase64EncodedSignatureBytes(keyLengthInBytes,
+                                                                   base64EncodedSignature,
+                                                                   signaturePrefixByte);
             signatureBytes.CopyTo(keyValue, signatureOffset);
 
             // We will disregard the final four bytes of the randomized input, as 
@@ -208,10 +240,10 @@ namespace Microsoft.Security.Utilities
             byte[] checksumBytes = BitConverter.GetBytes(checksum);
             checksumBytes.CopyTo(keyValue, checksumOffset);
 
-            return Convert.ToBase64String(keyValue);
+            return ConvertToBase64String(keyValue, encodeForUrl);
         }
 
-        internal static byte[] GetBase64EncodedSignatureBytes(uint keyLengthInBytes,
+        internal static byte[] GetBase64EncodedSignatureBytes(int keyLengthInBytes,
                                                               string base64EncodedSignature,
                                                               byte signaturePrefixByte)
         {
@@ -222,13 +254,14 @@ namespace Microsoft.Security.Utilities
                     nameof(base64EncodedSignature));
             }
 
-            byte[] signatureBytes = Convert.FromBase64String(base64EncodedSignature);
+            byte[] signatureBytes = ConvertFromBase64String(base64EncodedSignature);
 
             uint signature = (uint)signaturePrefixByte << 24;
 
-            // Retrieve padding required to maintain the 6-bit alignment
-            // that allows the base64-encoded signature to render.
-            int padding = (int)((keyLengthInBytes - 7) * 8) % 6;
+            // Compute the padding or 'spillover' into the final base64-encoded secret
+            // for the random portion of the token, which is our data array minus
+            // 7 bytes (3 bytes for the fixed signature, 4 bytes for the checksum).
+            int padding = ComputeSpilloverBitsIntoFinalEncodedCharacter(keyLengthInBytes - 7);
 
             uint mask = uint.MaxValue;
 
@@ -236,16 +269,16 @@ namespace Microsoft.Security.Utilities
             {
                 case 2:
                 {
-                    // Clear two bits where the signature will be left-shifted
-                    // in order to align on the base64-encoded a 6-bit boundary.
+                    // Clear two bits where the signature will be right-shifted
+                    // to align on the base64-encoded 6-bit boundary.
                     mask = 0xfcffffff;
                     break;
                 }
 
                 case 4:
                 {
-                    // In this case, we must left-shift the signature 4 bits
-                    // to remain aligned with 6-bit base64-encoding boundaries.
+                    // Clear four bits where the signature will be right-shifted
+                    // to remain aligned with base64-encoded 6-bit boundary.
                     mask = 0xf0ffffff;
                     break;
                 }
@@ -265,6 +298,25 @@ namespace Microsoft.Security.Utilities
             }
 
             return signatureBytes;
+        }
+
+        private static byte[] ConvertFromBase64String(string text)
+        {
+            text = text.Replace('-', '+');
+            text = text.Replace('_', '/');
+            return Convert.FromBase64String(text);
+        }
+
+        private static string ConvertToBase64String(byte[] data, bool encodeForUrl)
+        {
+            string text = Convert.ToBase64String(data);
+
+            if (encodeForUrl)
+            {
+                text = text.Replace('+', '-');
+                text = text.Replace('/', '_');
+            }
+            return text;
         }
     }
 }
