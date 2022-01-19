@@ -2,6 +2,7 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 
@@ -70,33 +71,37 @@ namespace Microsoft.Security.Utilities
         /// </summary>
         /// <param name="key">A base64-encoded identifiable secret, encoded using the standard base64-alphabet or a URL friendly alternate.</param>
         /// <param name="checksumSeed">The seed used to initialize the Marvin32 checksum algorithm.</param>
-        /// <param name="expectedSignature">A fixed signature that should immediately precese the checksum in the encoded secret.</param>
+        /// <param name="signature">A fixed signature that should immediately precede the checksum in the encoded secret.</param>
         /// <param name="encodeForUrl">'true' if the secret was encoded for URLs (replacing '+' and '/' characters and eliminating any padding).</param>
         /// <returns></returns>
-        public static bool ValidateBase64Key(string key, ulong checksumSeed, string expectedSignature, bool encodeForUrl)
+        public static bool ValidateBase64Key(string key, ulong checksumSeed, string signature, bool encodeForUrl)
         {
+            const int requiredEncodedSignatureLength = 4;
+
+            if (signature?.Length != requiredEncodedSignatureLength)
+            {
+                throw new ArgumentException(
+                    "Base64-encoded signature must be 4 characters long.",
+                    nameof(signature));
+            }
+
             int keyLength = key.Length;
 
-            if (!key.Contains(expectedSignature))
+            if (!key.Contains(signature))
             {
                 return false;
             }
 
+            const int checksumSizeInBytes = sizeof(uint);
+
 #if NETSTANDARD2_0_OR_GREATER || NET5_0_OR_GREATER
             var bytes = new ReadOnlySpan<byte>(ConvertFromBase64String(key));
-            int expectedChecksum = BitConverter.ToInt32(bytes.Slice(bytes.Length - 4, 4).ToArray(), 0);
-            int actualChecksum = Marvin.ComputeHash32(bytes.Slice(0, bytes.Length - 4), checksumSeed);
+            int expectedChecksum = BitConverter.ToInt32(bytes.Slice(bytes.Length - checksumSizeInBytes, checksumSizeInBytes).ToArray(), 0);
+            int actualChecksum = Marvin.ComputeHash32(bytes.Slice(0, bytes.Length - checksumSizeInBytes), checksumSeed);
 #else
             byte[] bytes = ConvertFromBase64String(key);
-            int checksumOffset = bytes.Length - 4;
-            var checksumOffsetData = new byte[4];
-            var checksumData = new byte[bytes.Length - 4];
-
-            Array.Copy(bytes, checksumOffset, checksumOffsetData, destinationIndex: 0, length: 4);
-            int expectedChecksum = BitConverter.ToInt32(checksumOffsetData, 0);
-
-            Array.Copy(bytes, sourceIndex: 0, checksumData, destinationIndex: 0, length: checksumOffset);
-            int actualChecksum = Marvin.ComputeHash32(checksumData, checksumSeed, 0, checksumData.Length);
+            int expectedChecksum = BitConverter.ToInt32(bytes, bytes.Length - checksumSizeInBytes);
+            int actualChecksum = Marvin.ComputeHash32(bytes, checksumSeed, 0, bytes.Length - checksumSizeInBytes);
 #endif
 
             if (actualChecksum != expectedChecksum)
@@ -106,29 +111,39 @@ namespace Microsoft.Security.Utilities
 
             // Compute the padding or 'spillover' into the final base64-encoded secret
             // for the random portion of the token, which is our data array minus
-            // 7 bytes (3 bytes for the fixed signature, 4 bytes for the checksum).
-            int padding = ComputeSpilloverBitsIntoFinalEncodedCharacter(bytes.Length - 7);
+            // the bytes allocated for the checksum (4) and fixed signature (3). Every
+            // base64-encoded character comprises 6 bits and so we can compute the 
+            // underlying bytes for this data by the following computation:
+            const int signatureSizeInBytes = requiredEncodedSignatureLength * 6 / 8;
+            int padding = ComputeSpilloverBitsIntoFinalEncodedCharacter(bytes.Length - signatureSizeInBytes - checksumSizeInBytes);
+
+            // Moving in the other direction, we can compute the encoded length of the checksum
+            // calculating the # of bits for the checksum, and diving this value by 6 to 
+            // determine the # of base64-encoded characters. Strictly speaking, for a 4-byte value,
+            // the Ceiling computation isn't required, as there will be no remainder for this
+            // value (4 * 8 / 6).
+            int lengthOfEncodedChecksum = (int)Math.Ceiling(checksumSizeInBytes * 8 / (double)6);
 
             string equalsSigns = string.Empty;
             int equalsSignIndex = key.IndexOf('=');
-            int prefixLength = keyLength - 10;
+            int prefixLength = keyLength - lengthOfEncodedChecksum - requiredEncodedSignatureLength;
             string pattern = string.Empty;
 
             if (equalsSignIndex > -1)
             {
                 equalsSigns = encodeForUrl ? string.Empty : key.Substring(equalsSignIndex);
-                prefixLength = equalsSignIndex - 10;
+                prefixLength = equalsSignIndex - lengthOfEncodedChecksum - requiredEncodedSignatureLength;
             }
 
             string trimmedKey = key.Trim('=');
             char lastChar = trimmedKey[trimmedKey.Length - 1];
-            char firstChar = trimmedKey[trimmedKey.Length - 6];
+            char firstChar = trimmedKey[trimmedKey.Length - lengthOfEncodedChecksum];
 
             string specialChars = encodeForUrl ? "\\-_" : "\\/+";
             string secretAlphabet = $"[a-zA-Z0-9{specialChars}]";
 
             // We need to escape characters in the signature that are special in regex.
-            expectedSignature = expectedSignature.Replace("+", "\\+");
+            signature = signature.Replace("+", "\\+");
 
             string checksumPrefix = string.Empty, checksumSuffix = string.Empty;
 
@@ -139,11 +154,11 @@ namespace Microsoft.Security.Utilities
                     // When we are required to right-shift the fixed signatures by two
                     // bits, the first encoded character of the checksum will have its
                     // first two bits set to zero, limiting encoded chars to A-P.
-                    if (firstChar < 'A' || firstChar > 'P')
-                    {
-                        return false;
-                    }
                     checksumPrefix = "[A-P]";
+
+                    // The following condition should always be true, since we 
+                    // have already verified the checksum earlier in this routine.
+                    Debug.Assert(firstChar >= 'A' && firstChar <= 'P');
                     break;
                 }
 
@@ -152,11 +167,11 @@ namespace Microsoft.Security.Utilities
                     // When we are required to right-shift the fixed signatures by four
                     // bits, the first encoded character of the checksum will have its
                     // first four bits set to zero, limiting encoded chars to A-D.
-                    if (firstChar < 'A' || firstChar > 'D')
-                    {
-                        return false;
-                    }
                     checksumPrefix = "[A-D]";
+
+                    // The following condition should always be true, since we 
+                    // have already verified the checksum earlier in this routine.
+                    Debug.Assert(firstChar >= 'A' && firstChar <= 'D');
                     break;
                 }
 
@@ -168,13 +183,12 @@ namespace Microsoft.Security.Utilities
                     // the final encoded character, followed by four zeros of padding.
                     // This limits the possible values for the final checksum character
                     // to one of A, Q, g & w.
-                    if (lastChar != 'A' && lastChar != 'Q' &&
-                        lastChar != 'g' && lastChar != 'w')
-                    {
-                        return false;
-                    }
-
                     checksumSuffix = "[AQgw]";
+
+                    // The following condition should always be true, since we 
+                    // have already verified the checksum earlier in this routine.
+                    Debug.Assert(lastChar == 'A' || lastChar == 'Q' ||
+                                 lastChar == 'g' || lastChar == 'w');
                     break;
                 }
             }
@@ -184,7 +198,7 @@ namespace Microsoft.Security.Utilities
             //   [a-zA-Z0-9\-_]{25}XXXX[A-P][a-zA-Z0-9\\-_]{5}
             //   [a-zA-Z0-9\-_]{24}XXXX[a-zA-Z0-9\-_]{5}[AQgw]
 
-            pattern = $"{secretAlphabet}{{{prefixLength}}}{expectedSignature}{checksumPrefix}{secretAlphabet}{{5}}{checksumSuffix}{equalsSigns}";
+            pattern = $"{secretAlphabet}{{{prefixLength}}}{signature}{checksumPrefix}{secretAlphabet}{{5}}{checksumSuffix}{equalsSigns}";
             var regex = new Regex(pattern);
             return regex.IsMatch(key);
         }
@@ -198,7 +212,10 @@ namespace Microsoft.Security.Utilities
             // Next, using the modulo operator, we determine the number of 
             // 'spillover' bits that will flow into, but not not completely 
             // fill, the final 6-bit encoded value. 
-            return countOfBytes * 8 % 6;
+            const int bitsInBytes = 8;
+            const int bitsInBase64Character = 6;
+
+            return countOfBytes * bitsInBytes % bitsInBase64Character;
         }
 
         private static string GenerateKeyWithAppendedSignatureAndChecksum(byte[] keyValue,
@@ -225,8 +242,10 @@ namespace Microsoft.Security.Utilities
             // these bytes will be overwritten with the checksum, and therefore
             // aren't relevant to that computation.
 
+            const int sizeOfChecksumInBytes = sizeof(uint);
+
 #if NETSTANDARD2_0_OR_GREATER || NET5_0_OR_GREATER
-            var checksumInput = new ReadOnlySpan<byte>(keyValue).Slice(0, keyValue.Length - 4);
+            var checksumInput = new ReadOnlySpan<byte>(keyValue).Slice(0, keyValue.Length - sizeOfChecksumInBytes);
 
             // Calculate the checksum and store it in the final four bytes.
             int checksum = Marvin.ComputeHash32(checksumInput, checksumSeed);
@@ -304,6 +323,14 @@ namespace Microsoft.Security.Utilities
         {
             text = text.Replace('-', '+');
             text = text.Replace('_', '/');
+
+            int paddingCount = 4 - text.Length % 4;
+
+            if (paddingCount < 3)
+            {
+                text += new string('=', paddingCount);
+            }
+
             return Convert.FromBase64String(text);
         }
 
@@ -315,7 +342,9 @@ namespace Microsoft.Security.Utilities
             {
                 text = text.Replace('+', '-');
                 text = text.Replace('/', '_');
+                text = text.TrimEnd('=');
             }
+
             return text;
         }
     }

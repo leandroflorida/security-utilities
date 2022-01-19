@@ -184,6 +184,7 @@ namespace Microsoft.Security.Utilities
                 yield return secret;
             }
         }
+
         private static HashSet<char> GetBase64Alphabet(bool encodeForUrl)
         {
             var alphabet = new HashSet<char>(new char[] {
