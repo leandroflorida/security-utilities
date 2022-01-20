@@ -351,7 +351,7 @@ namespace Microsoft.Security.Utilities
             return signatureBytes;
         }
 
-        private static byte[] ConvertFromBase64String(string text)
+        internal static byte[] ConvertFromBase64String(string text)
         {
             text = text.Replace('-', '+');
             text = text.Replace('_', '/');

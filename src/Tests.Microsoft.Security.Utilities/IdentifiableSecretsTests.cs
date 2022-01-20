@@ -3,12 +3,11 @@
 
 using System;
 using System.Collections.Generic;
-using System.Configuration;
 using System.Linq;
 using System.Text;
 
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Microsoft.Win32;
 
 namespace Microsoft.Security.Utilities
 {
@@ -176,6 +175,24 @@ namespace Microsoft.Security.Utilities
         {
             var isValid = IdentifiableSecrets.ValidateBase64Key(secret, seed, signature, encodeForUrl);
             Assert.IsTrue(isValid);
+
+            if (encodeForUrl)
+            {
+                // This code path ensures that our API mechanism to replace certain characters in a
+                // base64-encoded string provides the functional equivalent to calling an actual
+                // Azure API that provides URL friendly base64-encoding. We don't actually take a 
+                // dependency on this package in order to minimize the packages that our API
+                // itself has a dependency on. This ensures our behavior is strictly identical
+                // to that more official code, however.
+                byte[] apiDecodedBytes = IdentifiableSecrets.ConvertFromBase64String(secret);
+                byte[] azureDecodedBytes = Base64UrlEncoder.DecodeBytes(secret);
+
+                Assert.AreEqual(apiDecodedBytes.Length, azureDecodedBytes.Length);
+                for (int i = 0; i < apiDecodedBytes.Length; i++)
+                {
+                    Assert.AreEqual(apiDecodedBytes[i], azureDecodedBytes[i]);
+                }
+            }
 
             // Next, we validate that modifying the seed, signature or 
             // the generated token data itself ensures validation fails.
