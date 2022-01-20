@@ -3,10 +3,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Linq;
 using System.Text;
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Microsoft.Win32;
 
 namespace Microsoft.Security.Utilities
 {
@@ -27,8 +29,44 @@ namespace Microsoft.Security.Utilities
             s_random = new Random((int)s_randomSeed);
         }
 
+        private static string s_base62Alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+
         [TestMethod]
-        public void IdentifiableSecrets_GenerateBase64Key_ShouldThrowExceptionWhenLengthIsInvalid()
+        public void IdentifiableSecrets_Base62AlphabetRecognized()
+        {
+            var alphabet = new HashSet<char>(s_base62Alphabet.ToCharArray());
+            for (int i = 0; i < 256; i++)
+            {
+                Assert.AreEqual(alphabet.Contains((char)i), ((char)i).IsBase62EncodingChar());
+            }
+        }
+
+        [TestMethod]
+        public void IdentifiableSecrets_Base64AlphabetRecognized()
+        {
+            string base64Alphabet = $"{s_base62Alphabet}+/";
+            var alphabet = new HashSet<char>(base64Alphabet.ToCharArray());
+
+            for (int i = 0; i < 256; i++)
+            {
+                Assert.AreEqual(alphabet.Contains((char)i), ((char)i).IsBase64EncodingChar());
+            }
+        }
+
+        [TestMethod]
+        public void IdentifiableSecrets_Base64UrlAlphabetRecognized()
+        {
+            string base64UrlAlphabet = $"{s_base62Alphabet}-_";
+            var alphabet = new HashSet<char>(base64UrlAlphabet.ToCharArray());
+
+            for (int i = 0; i < 256; i++)
+            {
+                Assert.AreEqual(alphabet.Contains((char)i), ((char)i).IsBase64UrlEncodingChar());
+            }
+        }
+
+        [TestMethod]
+        public void IdentifiableSecrets_GenerateBase64Key_ShouldThrowExceptionForInvalidLengths()
         {
             ulong seed = DefaultSeed;
             string signature = DefaultSignature;
@@ -58,6 +96,42 @@ namespace Microsoft.Security.Utilities
                                                           keyLengthInBytes: 32,
                                                           base64EncodedSignature: "this signature is too long",
                                                           encodeForUrl));
+            }
+        }
+
+        [TestMethod]
+        public void IdentifiableSecrets_GenerateBase64Key_ShouldThrowExceptionForInvalidSignatures()
+        {
+            Console.WriteLine($"The random values in this test were producing using the seed value: {s_randomSeed}");
+
+            ulong seed = (ulong)s_random.Next();
+            uint keyLengthInBytes = (uint)s_random.Next((int)IdentifiableSecrets.MinimumGeneratedKeySize, (int)IdentifiableSecrets.MaximumGeneratedKeySize);
+
+            foreach (bool encodeForUrl in new[] { true, false })
+            {
+                HashSet<char> alphabet = GetBase64Alphabet(encodeForUrl);
+
+                for (int i = 0; i < 256; i++)
+                {
+                    char injectedChar = (char)i;
+                    string signature = $"XXX{injectedChar}";
+
+                    // If the injected character is legal, we'll go ahead and validate everything works as expected.
+                    if (alphabet.Contains(injectedChar))
+                    {
+                        string secret = IdentifiableSecrets.GenerateBase64Key(seed, keyLengthInBytes, signature, encodeForUrl);
+                        ValidateSecret(secret, seed, signature, encodeForUrl);
+                        continue;
+                    }
+
+                    // All illegal characters in the signature should raise an exception.
+                    Assert.ThrowsException<ArgumentException>(() =>
+                        IdentifiableSecrets.GenerateBase64Key(seed,
+                                                              keyLengthInBytes,
+                                                              signature,
+                                                              encodeForUrl));
+
+                }
             }
         }
 
@@ -94,31 +168,35 @@ namespace Microsoft.Security.Utilities
                                                                                              signature,
                                                                                              encodeForUrl))
                             {
-
-                                var isValid = IdentifiableSecrets.ValidateBase64Key(secret, seed, signature, encodeForUrl);
-                                Assert.IsTrue(isValid);
-
-                                // Next, we validate that modifying the seed, signature or 
-                                // the generated token data itself ensures validation fails.
-                                ulong newSeed = ~seed;
-                                Assert.AreNotEqual(seed, newSeed);
-                                isValid = IdentifiableSecrets.ValidateBase64Key(secret, newSeed, signature, encodeForUrl);
-                                Assert.IsFalse(isValid);
-
-                                string newSignature = GetReplacementCharacter(signature[0]) + signature.Substring(1);
-                                Assert.AreNotEqual(signature, newSignature);
-                                isValid = IdentifiableSecrets.ValidateBase64Key(secret, seed, newSignature, encodeForUrl);
-                                Assert.IsFalse(isValid);
-
-                                string newSecret = GetReplacementCharacter(secret[0]) + secret.Substring(1);
-                                Assert.AreNotEqual(secret, newSecret);
-                                isValid = IdentifiableSecrets.ValidateBase64Key(newSecret, seed, signature, encodeForUrl);
-                                Assert.IsFalse(isValid);
+                                ValidateSecret(secret, seed, signature, encodeForUrl);                                
                             }
                         }
                     }
                 }
             }
+        }
+
+        private void ValidateSecret(string secret, ulong seed, string signature, bool encodeForUrl)
+        {
+            var isValid = IdentifiableSecrets.ValidateBase64Key(secret, seed, signature, encodeForUrl);
+            Assert.IsTrue(isValid);
+
+            // Next, we validate that modifying the seed, signature or 
+            // the generated token data itself ensures validation fails.
+            ulong newSeed = ~seed;
+            Assert.AreNotEqual(seed, newSeed);
+            isValid = IdentifiableSecrets.ValidateBase64Key(secret, newSeed, signature, encodeForUrl);
+            Assert.IsFalse(isValid);
+
+            string newSignature = GetReplacementCharacter(signature[0]) + signature.Substring(1);
+            Assert.AreNotEqual(signature, newSignature);
+            isValid = IdentifiableSecrets.ValidateBase64Key(secret, seed, newSignature, encodeForUrl);
+            Assert.IsFalse(isValid);
+
+            string newSecret = GetReplacementCharacter(secret[0]) + secret.Substring(1);
+            Assert.AreNotEqual(secret, newSecret);
+            isValid = IdentifiableSecrets.ValidateBase64Key(newSecret, seed, signature, encodeForUrl);
+            Assert.IsFalse(isValid);
         }
 
         IEnumerable<ulong> GenerateSeedsTheIncludeAllBits()

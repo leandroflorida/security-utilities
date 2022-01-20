@@ -10,8 +10,30 @@ namespace Microsoft.Security.Utilities
 {
     public static class IdentifiableSecrets
     {
-        internal static uint MaximumGeneratedKeySize => 4096;
-        internal static uint MinimumGeneratedKeySize => 24;
+        public static uint MaximumGeneratedKeySize => 4096;
+
+        public static uint MinimumGeneratedKeySize => 24;
+
+        public static bool IsBase62EncodingChar(this char ch)
+        {
+            return (ch >= 'a' && ch <= 'z') ||
+                   (ch >= 'A' && ch <= 'Z') ||
+                   (ch >= '0' && ch <= '9');
+        }
+
+        public static bool IsBase64EncodingChar(this char ch)
+        {
+            return ch.IsBase62EncodingChar() ||
+                   ch == '+' ||
+                   ch == '/';
+        }
+
+        public static bool IsBase64UrlEncodingChar(this char ch)
+        {
+            return ch.IsBase62EncodingChar() ||
+                   ch == '-' ||
+                   ch == '_';
+        }
 
         /// <summary>
         /// Generate an identifiable secret rendered in the standard base64-encoding alphabet.
@@ -41,6 +63,8 @@ namespace Microsoft.Security.Utilities
                     nameof(keyLengthInBytes));
             }
 
+            ValidateBase64EncodedSignature(base64EncodedSignature, encodeForUrl);
+
             // NOTE: 'identifiable keys' help create security value by encoding signatures in
             //       both the binary and encoded forms of the token. Because of the minimum
             //       key length enforcement immediately above, this code DOES NOT COMPROMISE
@@ -66,31 +90,44 @@ namespace Microsoft.Security.Utilities
                                                                encodeForUrl);
         }
 
+        private static void ValidateBase64EncodedSignature(string base64EncodedSignature, bool encodeForUrl)
+        {
+            const int requiredEncodedSignatureLength = 4;
+
+            if (base64EncodedSignature?.Length != requiredEncodedSignatureLength)
+            {
+                throw new ArgumentException(
+                    "Base64-encoded signature must be 4 characters long.",
+                    nameof(base64EncodedSignature));
+            }
+
+            foreach (char ch in base64EncodedSignature)
+            {
+                bool isValidChar = encodeForUrl
+                    ? ch.IsBase64UrlEncodingChar()
+                    : ch.IsBase64EncodingChar();
+
+                if (!isValidChar)
+                {
+                    string prefix = encodeForUrl ? "URL " : string.Empty;
+                    throw new ArgumentException(
+                        $"Signature contains one or more illegal characters {prefix}base64-encoded characters: {base64EncodedSignature}",
+                        nameof(base64EncodedSignature));
+                }
+            }
+        }
+
         /// <summary>
         /// Validate if the identifiable secret contains a valid format.
         /// </summary>
         /// <param name="key">A base64-encoded identifiable secret, encoded using the standard base64-alphabet or a URL friendly alternate.</param>
         /// <param name="checksumSeed">The seed used to initialize the Marvin32 checksum algorithm.</param>
-        /// <param name="signature">A fixed signature that should immediately precede the checksum in the encoded secret.</param>
+        /// <param name="base64EncodedSignature">A fixed signature that should immediately precede the checksum in the encoded secret.</param>
         /// <param name="encodeForUrl">'true' if the secret was encoded for URLs (replacing '+' and '/' characters and eliminating any padding).</param>
         /// <returns></returns>
-        public static bool ValidateBase64Key(string key, ulong checksumSeed, string signature, bool encodeForUrl)
+        public static bool ValidateBase64Key(string key, ulong checksumSeed, string base64EncodedSignature, bool encodeForUrl)
         {
-            const int requiredEncodedSignatureLength = 4;
-
-            if (signature?.Length != requiredEncodedSignatureLength)
-            {
-                throw new ArgumentException(
-                    "Base64-encoded signature must be 4 characters long.",
-                    nameof(signature));
-            }
-
-            int keyLength = key.Length;
-
-            if (!key.Contains(signature))
-            {
-                return false;
-            }
+            ValidateBase64EncodedSignature(base64EncodedSignature, encodeForUrl);
 
             const int checksumSizeInBytes = sizeof(uint);
 
@@ -114,7 +151,7 @@ namespace Microsoft.Security.Utilities
             // the bytes allocated for the checksum (4) and fixed signature (3). Every
             // base64-encoded character comprises 6 bits and so we can compute the 
             // underlying bytes for this data by the following computation:
-            const int signatureSizeInBytes = requiredEncodedSignatureLength * 6 / 8;
+            int signatureSizeInBytes = base64EncodedSignature.Length * 6 / 8;
             int padding = ComputeSpilloverBitsIntoFinalEncodedCharacter(bytes.Length - signatureSizeInBytes - checksumSizeInBytes);
 
             // Moving in the other direction, we can compute the encoded length of the checksum
@@ -126,16 +163,24 @@ namespace Microsoft.Security.Utilities
 
             string equalsSigns = string.Empty;
             int equalsSignIndex = key.IndexOf('=');
-            int prefixLength = keyLength - lengthOfEncodedChecksum - requiredEncodedSignatureLength;
+            int prefixLength = key.Length - lengthOfEncodedChecksum - base64EncodedSignature.Length;
             string pattern = string.Empty;
 
             if (equalsSignIndex > -1)
             {
-                equalsSigns = encodeForUrl ? string.Empty : key.Substring(equalsSignIndex);
-                prefixLength = equalsSignIndex - lengthOfEncodedChecksum - requiredEncodedSignatureLength;
+                Debug.Assert(encodeForUrl == false);
+                equalsSigns = key.Substring(equalsSignIndex);
+                prefixLength = equalsSignIndex - lengthOfEncodedChecksum - base64EncodedSignature.Length;
             }
 
             string trimmedKey = key.Trim('=');
+
+            int signatureOffset = trimmedKey.Length - lengthOfEncodedChecksum - base64EncodedSignature.Length;
+            if (base64EncodedSignature != trimmedKey.Substring(signatureOffset, base64EncodedSignature.Length))
+            {
+                return false;
+            }
+
             char lastChar = trimmedKey[trimmedKey.Length - 1];
             char firstChar = trimmedKey[trimmedKey.Length - lengthOfEncodedChecksum];
 
@@ -143,7 +188,7 @@ namespace Microsoft.Security.Utilities
             string secretAlphabet = $"[a-zA-Z0-9{specialChars}]";
 
             // We need to escape characters in the signature that are special in regex.
-            signature = signature.Replace("+", "\\+");
+            base64EncodedSignature = base64EncodedSignature.Replace("+", "\\+");
 
             string checksumPrefix = string.Empty, checksumSuffix = string.Empty;
 
@@ -198,7 +243,7 @@ namespace Microsoft.Security.Utilities
             //   [a-zA-Z0-9\-_]{25}XXXX[A-P][a-zA-Z0-9\\-_]{5}
             //   [a-zA-Z0-9\-_]{24}XXXX[a-zA-Z0-9\-_]{5}[AQgw]
 
-            pattern = $"{secretAlphabet}{{{prefixLength}}}{signature}{checksumPrefix}{secretAlphabet}{{5}}{checksumSuffix}{equalsSigns}";
+            pattern = $"{secretAlphabet}{{{prefixLength}}}{base64EncodedSignature}{checksumPrefix}{secretAlphabet}{{5}}{checksumSuffix}{equalsSigns}";
             var regex = new Regex(pattern);
             return regex.IsMatch(key);
         }
@@ -241,19 +286,13 @@ namespace Microsoft.Security.Utilities
             // We will disregard the final four bytes of the randomized input, as 
             // these bytes will be overwritten with the checksum, and therefore
             // aren't relevant to that computation.
-
             const int sizeOfChecksumInBytes = sizeof(uint);
 
 #if NETSTANDARD2_0_OR_GREATER || NET5_0_OR_GREATER
             var checksumInput = new ReadOnlySpan<byte>(keyValue).Slice(0, keyValue.Length - sizeOfChecksumInBytes);
-
-            // Calculate the checksum and store it in the final four bytes.
             int checksum = Marvin.ComputeHash32(checksumInput, checksumSeed);
 #else
-            byte[] checksumInput = new byte[checksumOffset];
-            Array.Copy(keyValue, checksumInput, checksumOffset);
-
-            int checksum = Marvin.ComputeHash32(checksumInput, checksumSeed, 0, checksumInput.Length);
+            int checksum = Marvin.ComputeHash32(keyValue, checksumSeed, 0, keyValue.Length - sizeOfChecksumInBytes);
 #endif
 
             byte[] checksumBytes = BitConverter.GetBytes(checksum);
@@ -266,13 +305,6 @@ namespace Microsoft.Security.Utilities
                                                               string base64EncodedSignature,
                                                               byte signaturePrefixByte)
         {
-            if (base64EncodedSignature?.Length != 4)
-            {
-                throw new ArgumentException(
-                    "Base64-encoded signature must be 4 characters long.",
-                    nameof(base64EncodedSignature));
-            }
-
             byte[] signatureBytes = ConvertFromBase64String(base64EncodedSignature);
 
             uint signature = (uint)signaturePrefixByte << 24;
