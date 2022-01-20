@@ -15,11 +15,6 @@ namespace Microsoft.Security.Utilities
     [TestClass]
     public class IdentifiableSecretsTests
     {
-        // Default values which are consistently consumed by tests for positive cases.
-        private const string DefaultSignature = "+Sig";
-        private const string DefaultSeedText = "DEFAULT0";
-        private readonly static ulong DefaultSeed = BitConverter.ToUInt64(Encoding.ASCII.GetBytes(DefaultSeedText).Reverse().ToArray(), 0);
-
         private static Random s_random;
         private static double s_randomSeed;
 
@@ -67,9 +62,10 @@ namespace Microsoft.Security.Utilities
 
         [TestMethod]
         public void IdentifiableSecrets_GenerateBase64Key_ShouldThrowExceptionForInvalidLengths()
-        {
-            ulong seed = DefaultSeed;
-            string signature = DefaultSignature;
+        {        
+            const string signature = "ABCD";
+            const string seedText = "DEFAULT0";
+            ulong seed = BitConverter.ToUInt64(Encoding.ASCII.GetBytes(seedText).Reverse().ToArray(), 0);
 
             foreach (bool encodeForUrl in new[] { true, false })
             {
