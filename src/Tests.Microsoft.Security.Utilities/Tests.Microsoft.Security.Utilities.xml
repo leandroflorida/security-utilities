@@ -1,0 +1,89 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Tests.Microsoft.Security.Utilities</name>
+    </assembly>
+    <members>
+        <member name="F:Microsoft.Security.Utilities.MarvinShared.Seed0">
+            <summary>
+            A random seed value used by the tests referenced below.
+            </summary>
+        </member>
+        <member name="F:Microsoft.Security.Utilities.MarvinShared.Seed1">
+            <summary>
+            A random seed value used by the tests referenced below.
+            </summary>
+        </member>
+        <member name="F:Microsoft.Security.Utilities.MarvinShared.Seed2">
+            <summary>
+            A random seed value used by the tests referenced below.
+            </summary>
+        </member>
+        <member name="F:Microsoft.Security.Utilities.MarvinShared.TestCases">
+            <summary>
+            In the spirit of cross-checking, these tests are pulled from a non-Microsoft
+            Marvin32 implementation. This implementation, per Niels Ferguson is not considered
+            completely compliant/correct and so it should not be used. But the simple test
+            cases here do result in matching output.
+            https://github.com/skeeto/marvin32/blob/21020faea884799879492204af70414facfd27e9/marvin32.c#L112
+            </summary>
+        </member>
+        <member name="M:Microsoft.Security.Utilities.MarvinShared.GetMarvinType">
+            <summary>
+            Retrieve .NET's Marvin class, if available.
+            </summary>
+            <returns>typeof(System.Marvin), if it is available.</returns>
+        </member>
+        <member name="M:Microsoft.Security.Utilities.MarvinShared.GetDotNetCurrentMarvinDefaultSeed">
+            <summary>
+            Retrieve the random seed that is used by .NET's Marvin class, if available.
+            </summary>
+            <returns>The current random value that seeds the .NET GetHashCode Marvin checksum computation.</returns>
+        </member>
+        <member name="M:Microsoft.Security.Utilities.MarvinTests.MarvinBasic">
+            <summary>
+            Compare a Marvin checksum against a well-known test case from the native code.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Security.Utilities.MarvinTests.MarvinLongerString">
+            <summary>
+            Compare a Marvin checksum against a well-known test case from the native code.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Security.Utilities.MarvinTests.MarvinVariousCases">
+            <summary>
+            Run a set of well-known tests cases that verify Marvin32 behavior.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Security.Utilities.MarvinTests.MarvinLegacyPartialChecksum">
+            <summary>
+            Test partial checksums of input bytes.
+            </summary>
+        </member>
+        <member name="M:Microsoft.Security.Utilities.MarvinTests.MarvinLegacyPartialChecksums">
+            <summary>
+            Additional partial checksum tests.
+            </summary>
+        </member>
+        <member name="T:Microsoft.Security.Utilities.TestCase">
+            <summary>
+            A private class used to capture data for test cases.
+            </summary>
+        </member>
+        <member name="P:Microsoft.Security.Utilities.TestCase.Seed">
+            <summary>
+            Gets or sets the 64-bit seed that is passed to the Marvin checksum algorithm.
+            </summary>
+        </member>
+        <member name="P:Microsoft.Security.Utilities.TestCase.Text">
+            <summary>
+            Gets or sets the text input to the checksum algorithm.
+            </summary>
+        </member>
+        <member name="P:Microsoft.Security.Utilities.TestCase.Checksum">
+            <summary>
+            Gets or sets the expected checksum value of the text input.
+            </summary>
+        </member>
+    </members>
+</doc>
