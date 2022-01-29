@@ -239,8 +239,8 @@ namespace Microsoft.Security.Utilities
                     // The following condition should always be true, since we 
                     // have already verified the checksum earlier in this routine.
                     // We explode all conditions in this check in order to
-                    // conclusively validate (via code coverage) that all 
-                    // conditions are met.
+                    // 'convince' VS code coverage these conditions are 
+                    // exhaustively covered.
                     Debug.Assert(firstChar == 'A' || firstChar == 'B' ||
                                  firstChar == 'C' || firstChar == 'D' ||
                                  firstChar == 'E' || firstChar == 'F' ||
