@@ -1,10 +1,10 @@
 ﻿[*.cs]
 
 # SA0001: XML comment analysis disabled
-dotnet_diagnostic.SA0001.severity = silent
+dotnet_diagnostic.SA0001.severity=silent
 
 # SA1637: File header should contain file name
-dotnet_diagnostic.SA1637.severity = silent
+dotnet_diagnostic.SA1637.severity=silent
 dotnet_diagnostic.CA1070.severity=silent
 dotnet_diagnostic.CA1032.severity=silent
 dotnet_diagnostic.CA1507.severity=silent
