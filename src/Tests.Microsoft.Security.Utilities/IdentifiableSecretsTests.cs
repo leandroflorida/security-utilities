@@ -73,27 +73,27 @@ namespace Microsoft.Security.Utilities
             {
                 Assert.ThrowsException<ArgumentException>(() =>
                     IdentifiableSecrets.GenerateBase64KeyHelper(seed,
-                                                          keyLengthInBytes: IdentifiableSecrets.MaximumGeneratedKeySize + 1,
-                                                          signature,
-                                                          encodeForUrl));
+                                                                keyLengthInBytes: IdentifiableSecrets.MaximumGeneratedKeySize + 1,
+                                                                signature,
+                                                                encodeForUrl));
 
                 Assert.ThrowsException<ArgumentException>(() =>
                     IdentifiableSecrets.GenerateBase64KeyHelper(seed,
-                                                          keyLengthInBytes: IdentifiableSecrets.MinimumGeneratedKeySize - 1,
-                                                          signature,
-                                                          encodeForUrl));
+                                                                keyLengthInBytes: IdentifiableSecrets.MinimumGeneratedKeySize - 1,
+                                                                signature,
+                                                                encodeForUrl));
 
                 Assert.ThrowsException<ArgumentException>(() =>
                     IdentifiableSecrets.GenerateBase64KeyHelper(seed,
-                                                          keyLengthInBytes: 32,
-                                                          base64EncodedSignature: null,
-                                                          encodeForUrl));
+                                                                keyLengthInBytes: 32,
+                                                                base64EncodedSignature: null,
+                                                                encodeForUrl));
 
                 Assert.ThrowsException<ArgumentException>(() =>
                     IdentifiableSecrets.GenerateBase64KeyHelper(seed,
-                                                          keyLengthInBytes: 32,
-                                                          base64EncodedSignature: "this signature is too long",
-                                                          encodeForUrl));
+                                                                keyLengthInBytes: 32,
+                                                                base64EncodedSignature: "this signature is too long",
+                                                                encodeForUrl));
             }
         }
 
@@ -268,8 +268,8 @@ namespace Microsoft.Security.Utilities
                     string base64Encoded = Convert.ToBase64String(apiDecodedBytes);
                     string urlSafeEncoded = Base64UrlEncoder.Encode(dotNetDecodedBytes);
 
-                    Assert.IsTrue(base64Encoded == secret ||
-                                  urlSafeEncoded == secret.Trim('='));
+                    Assert.IsTrue(base64Encoded == secret && 
+                                  urlSafeEncoded == secret.TrimEnd('='));
                     break;
                 }
             }

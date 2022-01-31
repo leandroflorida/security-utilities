@@ -44,9 +44,10 @@ namespace Microsoft.Security.Utilities
         /// for a full 64-character alphabet that can be decoded by standard API in .NET, 
         /// Go, etc.
         /// </summary>
-        /// <param name="checksumSeed"></param>
-        /// <param name="keyLengthInBytes">The size of the secret.</param>
-        /// <param name="base64EncodedSignature">The signature that will be encoded in the identifiable secret.</param>
+        /// <param name="checksumSeed">A seed value that initializes the Marvin checksum algorithm.</param>
+        /// <param name="keyLengthInBytes">The size of the secret in bytes.</param>
+        /// <param name="base64EncodedSignature">The signature that will be encoded in the identifiable secret. 
+        /// This string must only contain valid URL-safe base64-encoding characters.</param>
         /// <returns></returns>
         public static string GenerateUrlSafeBase64Key(ulong checksumSeed,
                                                       uint keyLengthInBytes,
@@ -67,6 +68,13 @@ namespace Microsoft.Security.Utilities
             return elidePadding ? secret.TrimEnd('=') : secret;
         }
 
+
+        /// </summary>
+        /// <param name="checksumSeed">A seed value that initializes the Marvin checksum algorithm.</param>
+        /// <param name="keyLengthInBytes">The size of the secret in bytes.</param>
+        /// <param name="base64EncodedSignature">The signature that will be encoded in the identifiable secret. 
+        /// This string must only contain valid base64-encoding characters.</param>
+        /// <returns></returns>
         public static string GenerateStandardBase64Key(ulong checksumSeed,
                                                        uint keyLengthInBytes,
                                                        string base64EncodedSignature)
