@@ -6,7 +6,7 @@
     <EnableNETAnalyzers>false</EnableNETAnalyzers>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
-  
+
   <Import Project="$(MSBuildThisFileDirectory)..\Build.props" />
 
   <PropertyGroup Label="Package">
@@ -40,6 +40,12 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../ReleaseHistory.md" Pack="true" PackagePath="ReleaseHistory.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>
