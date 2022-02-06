@@ -212,6 +212,8 @@ dotnet_diagnostic.CA2246.severity=silent
 dotnet_diagnostic.CA2255.severity=silent
 dotnet_diagnostic.CA2234.severity=silent
 dotnet_diagnostic.CA2252.severity=silent
+csharp_style_prefer_range_operator=false:suggestion
+csharp_style_prefer_index_operator=false:suggestion
 
 [*.vb]
 dotnet_diagnostic.CA1047.severity=silent

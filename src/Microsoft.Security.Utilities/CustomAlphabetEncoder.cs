@@ -13,22 +13,52 @@ namespace Microsoft.Security.Utilities
     /// </summary>
     public class CustomAlphabetEncoder
     {
-        internal const string DefaultBase62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        private static readonly CustomAlphabetEncoder s_base62Encoder;
+        private static readonly CustomAlphabetEncoder s_base64Encoder;
+        private static readonly CustomAlphabetEncoder s_urlSafeBase64Encoder;
+        
+        private static CustomAlphabetEncoder s_urlUnreservedCharactersEncoder;
+
+        public const string Base62Alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+        public const string Base64Alphabet = $"{Base62Alphabet}+/";
+
+        public const string UrlBase64Alphabet = $"{Base62Alphabet}-_";
+
+        /// <summary>
+        /// RFC 3986's unreserved character set (ASCII alphanumeric plus -._~). These
+        /// characters are allowed in a URL without any reserved purpose. See section
+        /// 2.3. Unreserved Characters https://www.ietf.org/rfc/rfc3986.txt.
+        /// </summary>
+        public const string UrlUnreservedCharacterSet = $"{Base64Alphabet}.~";
+
+
+        public static CustomAlphabetEncoder UrlUnreservedCharactersEncoder
+        {
+            get
+            {
+                s_urlUnreservedCharactersEncoder ??= new CustomAlphabetEncoder(UrlUnreservedCharacterSet);
+                return s_urlUnreservedCharactersEncoder;
+            }
+        }
+
 
         [ThreadStatic]
+        // This thread-affinited static variable is cached in order to prevent the
+        // need to repeatedly instantiate StringBuilder instances (which is expensive). 
         private static StringBuilder s_sb;
 
-        private string alphabet;
-        private Dictionary<char, uint> charToValueMap;
+        private readonly string alphabet;
+        private readonly Dictionary<char, uint> charToValueMap;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="CustomAlphabetEncoder"/> class.
         /// </summary>
         /// <param name="customAlphabet">The alphabet to be used for all encoding/decoding operations. Must consist of nonwhitespace ASCII letters, numbers, and/or punctuation.</param>
-        /// <exception cref="ArgumentException">customAlphabet contains a duplicate or forbidden character.</exception>
-        public CustomAlphabetEncoder(string customAlphabet = DefaultBase62Alphabet)
+        /// <exception cref="@System.ArgumentException">customAlphabet contains a duplicate or forbidden character.</exception>
+        public CustomAlphabetEncoder(string customAlphabet = Base62Alphabet)
         {
-            alphabet = string.IsNullOrWhiteSpace(customAlphabet) ? DefaultBase62Alphabet : customAlphabet;
+            alphabet = string.IsNullOrWhiteSpace(customAlphabet) ? Base62Alphabet : customAlphabet;
 
             if (alphabet.Length < 2)
             {
@@ -104,6 +134,16 @@ namespace Microsoft.Security.Utilities
             }
 
             return BitConverter.GetBytes(decodedValue);
+        }
+
+        internal static CustomAlphabetEncoder GetEncoder(string customAlphabet)
+        {
+            if (customAlphabet.Equals(UrlUnreservedCharacterSet))
+            {
+                return UrlUnreservedCharactersEncoder;
+            }
+
+            return new CustomAlphabetEncoder(customAlphabet);
         }
     }
 }

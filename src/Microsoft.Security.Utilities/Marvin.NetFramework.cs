@@ -4,6 +4,7 @@
 #if NET452_OR_GREATER
 
 using System;
+using System.CodeDom;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
@@ -23,6 +24,13 @@ namespace Microsoft.Security.Utilities
     /// </summary>
     public static class Marvin
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ComputeHash32(byte[] data, ulong seed)
+        {
+            data = data ?? throw new ArgumentNullException(nameof(data));
+            return ComputeHash32(data, seed, 0, data.Length);
+        }
+
         /// <summary>
         /// Convenience method to compute a Marvin hash and collapse it into a 32-bit hash.
         /// </summary>
@@ -35,6 +43,7 @@ namespace Microsoft.Security.Utilities
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int ComputeHash32(byte[] data, ulong seed, int offset, int length)
         {
+            data = data ?? throw new ArgumentNullException(nameof(data));
             long hash64 = ComputeHash(data, seed, offset, length);
             return ((int)(hash64 >> 32)) ^ (int)hash64;
         }
@@ -50,6 +59,7 @@ namespace Microsoft.Security.Utilities
         /// <returns>The computed Marvin32 64-bit checksum of the input data.</returns>
         public static long ComputeHash(byte[] data, ulong seed, int offset, int length)
         {
+            data = data ?? throw new ArgumentNullException(nameof(data));
             // Marvin by design can produce a checksum for empty input buffers, which
             // is why it's ok for the offset to point just past the end of the buffer
             // or for the input buffer to be empty;

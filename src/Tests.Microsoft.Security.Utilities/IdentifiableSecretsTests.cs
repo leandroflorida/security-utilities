@@ -17,8 +17,8 @@ namespace Microsoft.Security.Utilities
     [TestClass]
     public class IdentifiableSecretsTests
     {
-        private static Random s_random;
-        private static double s_randomSeed;
+        private static readonly Random s_random;
+        private static readonly double s_randomSeed;
 
         static IdentifiableSecretsTests()
         {
@@ -26,7 +26,7 @@ namespace Microsoft.Security.Utilities
             s_random = new Random((int)s_randomSeed);
         }
 
-        private static string s_base62Alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+        private static readonly string s_base62Alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
 
         [TestMethod]
         public void IdentifiableSecrets_Base62AlphabetRecognized()
@@ -60,6 +60,21 @@ namespace Microsoft.Security.Utilities
             {
                 Assert.AreEqual(alphabet.Contains((char)i), ((char)i).IsBase64UrlEncodingChar());
             }
+        }
+
+        [TestMethod]
+        public void IdentifiableSecrets_GenerateIdentifiablePassword()
+        {
+            string signature = "AzAz";
+            ulong checksumSeed = ulong.MaxValue / 2;
+            string password = IdentifiableSecrets.GenerateIdentifiablePassword(38, signature, checksumSeed, s_base62Alphabet);
+
+            ValidatePassword(password, checksumSeed, signature, s_base62Alphabet);            
+        }
+
+        private void ValidatePassword(string password, ulong checksumSeed, string encodedSignature, string passwordAlphabet)
+        {
+            bool isValid = IdentifiableSecrets.ValidatePassword(password, checksumSeed, encodedSignature, passwordAlphabet);
         }
 
         [TestMethod]
@@ -316,24 +331,24 @@ namespace Microsoft.Security.Utilities
             }
         }
 
-        IEnumerable<string> GenerateSignaturesThatIncludeFullAlphabet(bool encodeForUrl)
+        IEnumerable<string> GenerateSignaturesThatIncludeFullAlphabet(bool urlSafe)
         {
             // This yield iterator will continue to generate secrets until all
             // 64 characters of the desired encoding has appeared in at least
             // one secret.
 
-            var alphabet = GetBase64Alphabet(encodeForUrl).ToList();
+            var alphabet = GetBase64Alphabet(urlSafe).ToList();
 
             while (alphabet.Count > 0)
             {
-                string signature = GenerateRandomSignature(encodeForUrl, alphabet);
+                string signature = GenerateRandomSignature(alphabet);
 
                 foreach (char ch in signature) { alphabet.Remove(ch); }
                 yield return signature;
             }
         }
 
-        private string GenerateRandomSignature(bool encodeForUrl, IList<char> alphabet)
+        private string GenerateRandomSignature(IList<char> alphabet)
         {
             int maxValue = alphabet.Count - 1;
             return string.Concat(alphabet[s_random.Next(0, maxValue)],

@@ -2,17 +2,22 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Reflection.Emit;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace Microsoft.Security.Utilities
 {
     public static class IdentifiableSecrets
     {
-        public static uint MaximumGeneratedKeySize => 4096;
+        internal static uint MaximumGeneratedKeySize => 4096;
 
-        public static uint MinimumGeneratedKeySize => 24;
+        internal static uint MinimumGeneratedKeySize => 24;
 
         public static bool IsBase62EncodingChar(this char ch)
         {
@@ -48,6 +53,7 @@ namespace Microsoft.Security.Utilities
         /// <param name="keyLengthInBytes">The size of the secret in bytes.</param>
         /// <param name="base64EncodedSignature">The signature that will be encoded in the identifiable secret. 
         /// This string must only contain valid URL-safe base64-encoding characters.</param>
+        /// <param name="elidePadding">Specifiers whether equal sign padding (if any) should be elided.</param>
         /// <returns></returns>
         public static string GenerateUrlSafeBase64Key(ulong checksumSeed,
                                                       uint keyLengthInBytes,
@@ -69,6 +75,8 @@ namespace Microsoft.Security.Utilities
         }
 
 
+        /// <summary>
+        /// Generate an identifiable secret encoded in the standard base64 alphabet.
         /// </summary>
         /// <param name="checksumSeed">A seed value that initializes the Marvin checksum algorithm.</param>
         /// <param name="keyLengthInBytes">The size of the secret in bytes.</param>
@@ -300,6 +308,75 @@ namespace Microsoft.Security.Utilities
             pattern = $"{secretAlphabet}{{{prefixLength}}}{base64EncodedSignature}{checksumPrefix}{secretAlphabet}{{5}}{checksumSuffix}{equalsSigns}";
             var regex = new Regex(pattern);
             return regex.IsMatch(key);
+        }
+
+        public static string GenerateIdentifiablePassword(uint lengthInCharacters, string signature, ulong checksumSeed, IEnumerable<char> customAlphabet = null)
+        {
+            string customAlphabetString = customAlphabet != null ? new string(customAlphabet.ToArray()) : null;
+            return GenerateIdentifiablePassword(lengthInCharacters, signature, checksumSeed, customAlphabetString);
+        }
+
+        public static string GenerateIdentifiablePassword(uint lengthInCharacters, string signature, ulong checksumSeed, string customAlphabet)
+        {
+            ValidateSignatureAndAlphabet(signature, customAlphabet);
+
+            char[] secretChars = new char[lengthInCharacters + signature.Length];
+
+            using var rng = new RNGCryptoServiceProvider();
+
+            var buffer = new byte[sizeof(uint)];
+            while (lengthInCharacters-- > 0)
+            {
+                rng.GetBytes(buffer);
+                uint randomIndex = BitConverter.ToUInt32(buffer, 0) % (uint)customAlphabet.Length;
+                char randomChar = customAlphabet[(int)randomIndex];
+                secretChars[lengthInCharacters] = randomChar;
+            }
+
+            lengthInCharacters = (uint)(secretChars.Length - signature.Length);
+            foreach (char ch in signature)
+            {
+                secretChars[lengthInCharacters++] = ch;
+            }
+
+            byte[] toChecksum = Encoding.ASCII.GetBytes(secretChars);
+            int checksum = Marvin.ComputeHash32(toChecksum, checksumSeed);
+
+            CustomAlphabetEncoder encoder = CustomAlphabetEncoder.GetEncoder(customAlphabet);
+            string encodedChecksum = encoder.Encode((uint)checksum);
+
+            return new string(secretChars) + encodedChecksum;
+        }
+
+        public static bool ValidatePassword(string password, ulong checksumSeed, string encodedSignature, string passwordAlphabet)
+        {
+            int signatureIndex = password.LastIndexOf(encodedSignature, StringComparison.Ordinal);
+            if (signatureIndex == -1)
+            {
+                throw new ArgumentException($"Password does not contain expected signature: {encodedSignature}", nameof(password));
+            }
+
+            int checksumIndex = signatureIndex + encodedSignature.Length;
+            string encodedChecksum = password.Substring(checksumIndex);
+            string randomComponent = password.Substring(0, checksumIndex);
+
+            if (!randomComponent.EndsWith(encodedSignature, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            byte[] passwordBytes = Encoding.ASCII.GetBytes(randomComponent);
+            int computedChecksum = Marvin.ComputeHash32(passwordBytes, checksumSeed);
+
+            CustomAlphabetEncoder encoder = CustomAlphabetEncoder.GetEncoder(passwordAlphabet);
+            string encodedComputedChecksum = encoder.Encode((uint)computedChecksum);
+
+            return encodedComputedChecksum == encodedChecksum;
+        }
+
+        private static bool ValidateSignatureAndAlphabet(string signature, string customAlphabet)
+        {
+            return signature == customAlphabet;
         }
 
         private static int ComputeSpilloverBitsIntoFinalEncodedCharacter(int countOfBytes)

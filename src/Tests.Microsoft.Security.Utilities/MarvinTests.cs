@@ -32,11 +32,10 @@ namespace Microsoft.Security.Utilities
 
 #if NETCOREAPP3_1
             long marvin = Marvin.ComputeHash(input.AsSpan(), seed);
-            Assert.AreEqual(expected, marvin);
 #elif NET452_OR_GREATER
             long marvin = Marvin.ComputeHash(input, seed, 0, input.Length);
-            Assert.AreEqual(expected, marvin);
 #endif
+            Assert.AreEqual(expected, marvin);
         }
 
         /// <summary>
@@ -56,11 +55,10 @@ namespace Microsoft.Security.Utilities
             long expected = unchecked((long)0xa128eb7e7260aca2);
 #if NETCOREAPP3_1
             long marvin = Marvin.ComputeHash(input.AsSpan(), seed);
-            Assert.AreEqual(expected, marvin);
 #elif NET452_OR_GREATER
             long marvin = Marvin.ComputeHash(input, seed, 0, input.Length);
-            Assert.AreEqual(expected, marvin);
 #endif
+            Assert.AreEqual(expected, marvin);
         }
 
         /// <summary>
@@ -155,47 +153,38 @@ namespace Microsoft.Security.Utilities
         {
             ulong seed = 0xbeefbeefdeaddead;
 
-            using (RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider())
+            using RNGCryptoServiceProvider rng = new();
+
+            for (int i = 0; i < 12; i++)
             {
-                for (int i = 0; i < 12; i++)
-                {
-                    int length = i + 1;
-                    byte[] buffer = new byte[length + 16];
-                    byte[] testData = Encoding.ASCII.GetBytes(new string('+', length));
+                int length = i + 1;
+                byte[] buffer = new byte[length + 16];
+                byte[] testData = Encoding.ASCII.GetBytes(new string('+', length));
 
 #if NET452_OR_GREATER
-                    int expectedChecksum = Marvin.ComputeHash32(testData, seed, 0, testData.Length);
+                int expectedChecksum = Marvin.ComputeHash32(testData, seed, 0, testData.Length);
 #else
                     int expectedChecksum = Marvin.ComputeHash32(testData, seed);
 #endif
 
-                    for (int j = 0; j < 16; j++)
-                    {
-                        rng.GetBytes(buffer);
-                        testData.CopyTo(buffer, j);
+                for (int j = 0; j < 16; j++)
+                {
+                    rng.GetBytes(buffer);
+                    testData.CopyTo(buffer, j);
 
 #if NET452_OR_GREATER
-                        int actualChecksum = Marvin.ComputeHash32(buffer, seed, j, length);
-                        Assert.AreEqual(expectedChecksum, actualChecksum);
+                    int actualChecksum = Marvin.ComputeHash32(buffer, seed, j, length);
+                    Assert.AreEqual(expectedChecksum, actualChecksum);
 #else
                         var testDataSpan = new ReadOnlySpan<byte>(testData);
                         var bufferInternalSpan = new ReadOnlySpan<byte>(buffer, j, length);
 
-#if NETCOREAPP3_1
-                        int actualChecksum = Marvin.ComputeHash32(testDataSpan, seed);
-                        Assert.AreEqual(expectedChecksum, actualChecksum);
-
-                        actualChecksum = Marvin.ComputeHash32(bufferInternalSpan, seed);
-                        Assert.AreEqual(expectedChecksum, actualChecksum);
-#else
                         int actualChecksum = Marvin.ComputeHash32(testDataSpan, seed);
                         Assert.AreEqual(expectedChecksum, actualChecksum);
 
                         actualChecksum = Marvin.ComputeHash32(bufferInternalSpan, seed);
                         Assert.AreEqual(expectedChecksum, actualChecksum);
 #endif
-#endif
-                    }
                 }
             }
         }

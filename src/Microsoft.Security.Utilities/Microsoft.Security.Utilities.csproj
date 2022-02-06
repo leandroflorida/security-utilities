@@ -5,6 +5,8 @@
     <TargetFrameworks>net452;netstandard2.0;netstandard2.1;net5.0</TargetFrameworks>
     <EnableNETAnalyzers>false</EnableNETAnalyzers>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <BaseOutputPath>$(SolutionDir)\bin\</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(SolutionDir)\bin\</BaseIntermediateOutputPath>
   </PropertyGroup>
 
   <Import Project="$(MSBuildThisFileDirectory)..\Build.props" />
