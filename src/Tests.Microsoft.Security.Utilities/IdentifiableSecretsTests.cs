@@ -220,6 +220,36 @@ namespace Microsoft.Security.Utilities
             }
         }
 
+        [TestMethod]
+        public void IdentifiableSecrets_ValidateBase64KeyWorksForAllKinds()
+        {
+            ulong seed = 5575864757416767536;
+            string signature = "ABCD";
+            bool isValid;
+            string key;
+
+            foreach (bool elidePadding in new bool[] { true, false })
+            {
+                key = IdentifiableSecrets.GenerateUrlSafeBase64Key(seed, 40, signature, elidePadding: false);
+
+                isValid = IdentifiableSecrets.ValidateBase64Key(key,
+                                                                     seed,
+                                                                     signature,
+                                                                     encodeForUrl: true);
+                Assert.IsTrue(isValid);
+                ValidateSecret(key, seed, signature, encodeForUrl: true);
+            }
+
+            key = IdentifiableSecrets.GenerateStandardBase64Key(seed, 40, signature);
+
+            isValid = IdentifiableSecrets.ValidateBase64Key(key,
+                                                            seed,
+                                                            signature,
+                                                            encodeForUrl: false);
+            Assert.IsTrue(isValid);
+            ValidateSecret(key, seed, signature, encodeForUrl: false);
+        }
+
         private enum Base64EncodingKind
         {
             Unknown,
